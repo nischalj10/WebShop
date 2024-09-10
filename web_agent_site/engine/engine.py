@@ -7,6 +7,8 @@ import random
 from collections import defaultdict
 from ast import literal_eval
 from decimal import Decimal
+import ijson
+import bigjson
 
 import cleantext
 from tqdm import tqdm
@@ -226,137 +228,279 @@ def clean_product_keys(products):
     print('Keys cleaned.')
     return products
 
+# def load_products(filepath, num_products=None, human_goals=True):
+#     # TODO: move to preprocessing step -> enforce single source of truth
+#     with open(filepath) as f:
+#         products = json.load(f)
+#     products_list = list(products)
+#     print(f"products:{products_list[:3]}")
+#     # products = clean_product_keys(products)
+    
+#     # with open(DEFAULT_REVIEW_PATH) as f:
+#     #     reviews = json.load(f)
+#     all_reviews = dict()
+#     all_ratings = dict()
+#     # for r in reviews:
+#     #     all_reviews[r['asin']] = r['reviews']
+#     #     all_ratings[r['asin']] = r['average_rating']
+
+#     if human_goals:
+#         with open(HUMAN_ATTR_PATH) as f:
+#             human_attributes = json.load(f)
+#     with open(DEFAULT_ATTR_PATH) as f:
+#         attributes = json.load(f)
+#     with open(HUMAN_ATTR_PATH) as f:
+#         human_attributes = json.load(f)
+#     print('Attributes loaded.')
+
+#     asins = set()
+#     all_products = []
+#     attribute_to_asins = defaultdict(set)
+#     if num_products is not None:
+#         # using item_shuffle.json, we assume products already shuffled
+#         products = products[:num_products]
+#     for i, p in tqdm(enumerate(products), total=len(products)):
+#         asin = p['asin']
+#         if asin == 'nan' or len(asin) > 10:
+#             continue
+
+#         if asin in asins:
+#             continue
+#         else:
+#             asins.add(asin)
+
+#         products[i]['category'] = p['category']
+#         products[i]['query'] = p['query']
+#         products[i]['product_category'] = p['product_category']
+
+#         products[i]['Title'] = p['name']
+#         products[i]['Description'] = p['full_description']
+#         products[i]['Reviews'] = all_reviews.get(asin, [])
+#         products[i]['Rating'] = all_ratings.get(asin, 'N.A.')
+#         for r in products[i]['Reviews']:
+#             if 'score' not in r:
+#                 r['score'] = r.pop('stars')
+#             if 'review' not in r:
+#                 r['body'] = ''
+#             else:
+#                 r['body'] = r.pop('review')
+#         products[i]['BulletPoints'] = p['small_description'] \
+#             if isinstance(p['small_description'], list) else [p['small_description']]
+
+#         pricing = p.get('pricing')
+#         if pricing is None or not pricing:
+#             pricing = [100.0]
+#             price_tag = '$100.0'
+#         else:
+#             pricing = [
+#                 float(Decimal(re.sub(r'[^\d.]', '', price)))
+#                 for price in pricing.split('$')[1:]
+#             ]
+#             if len(pricing) == 1:
+#                 price_tag = f"${pricing[0]}"
+#             else:
+#                 price_tag = f"${pricing[0]} to ${pricing[1]}"
+#                 pricing = pricing[:2]
+#         products[i]['pricing'] = pricing
+#         products[i]['Price'] = price_tag
+
+#         options = dict()
+#         customization_options = p['customization_options']
+#         option_to_image = dict()
+#         if customization_options:
+#             for option_name, option_contents in customization_options.items():
+#                 if option_contents is None:
+#                     continue
+#                 option_name = option_name.lower()
+
+#                 option_values = []
+#                 for option_content in option_contents:
+#                     option_value = option_content['value'].strip().replace('/', ' | ').lower()
+#                     option_image = option_content.get('image', None)
+
+#                     option_values.append(option_value)
+#                     option_to_image[option_value] = option_image
+#                 options[option_name] = option_values
+#         products[i]['options'] = options
+#         products[i]['option_to_image'] = option_to_image
+
+#         # without color, size, price, availability
+#         # if asin in attributes and 'attributes' in attributes[asin]:
+#         #     products[i]['Attributes'] = attributes[asin]['attributes']
+#         # else:
+#         #     products[i]['Attributes'] = ['DUMMY_ATTR']
+#         # products[i]['instruction_text'] = \
+#         #     attributes[asin].get('instruction', None)
+#         # products[i]['instruction_attributes'] = \
+#         #     attributes[asin].get('instruction_attributes', None)
+
+#         # without color, size, price, availability
+#         if asin in attributes and 'attributes' in attributes[asin]:
+#             products[i]['Attributes'] = attributes[asin]['attributes']
+#         else:
+#             products[i]['Attributes'] = ['DUMMY_ATTR']
+            
+#         if human_goals:
+#             if asin in human_attributes:
+#                 products[i]['instructions'] = human_attributes[asin]
+#         else:
+#             products[i]['instruction_text'] = \
+#                 attributes[asin].get('instruction', None)
+
+#             products[i]['instruction_attributes'] = \
+#                 attributes[asin].get('instruction_attributes', None)
+
+#         products[i]['MainImage'] = p['images'][0]
+#         products[i]['query'] = p['query'].lower().strip()
+
+#         all_products.append(products[i])
+
+#     for p in all_products:
+#         for a in p['Attributes']:
+#             attribute_to_asins[a].add(p['asin'])
+
+#     product_item_dict = {p['asin']: p for p in all_products}
+#     product_prices = generate_product_prices(all_products)
+#     return all_products, product_item_dict, product_prices, attribute_to_asins
 
 def load_products(filepath, num_products=None, human_goals=True):
-    # TODO: move to preprocessing step -> enforce single source of truth
-    with open(filepath) as f:
-        products = json.load(f)
-    print('Products loaded.')
-    products = clean_product_keys(products)
-    
-    # with open(DEFAULT_REVIEW_PATH) as f:
-    #     reviews = json.load(f)
+    all_products = []
+    asins = set()
+    attribute_to_asins = defaultdict(set)
+
+    # Load reviews
     all_reviews = dict()
     all_ratings = dict()
+    # Uncomment and implement if you need to load reviews from a file
+    # with open(DEFAULT_REVIEW_PATH) as f:
+    #     reviews = json.load(f)
     # for r in reviews:
     #     all_reviews[r['asin']] = r['reviews']
     #     all_ratings[r['asin']] = r['average_rating']
 
+    # Load attributes
     if human_goals:
         with open(HUMAN_ATTR_PATH) as f:
             human_attributes = json.load(f)
     with open(DEFAULT_ATTR_PATH) as f:
         attributes = json.load(f)
-    with open(HUMAN_ATTR_PATH) as f:
-        human_attributes = json.load(f)
     print('Attributes loaded.')
 
-    asins = set()
-    all_products = []
-    attribute_to_asins = defaultdict(set)
-    if num_products is not None:
-        # using item_shuffle.json, we assume products already shuffled
-        products = products[:num_products]
-    for i, p in tqdm(enumerate(products), total=len(products)):
-        asin = p['asin']
-        if asin == 'nan' or len(asin) > 10:
-            continue
-
-        if asin in asins:
-            continue
-        else:
-            asins.add(asin)
-
-        products[i]['category'] = p['category']
-        products[i]['query'] = p['query']
-        products[i]['product_category'] = p['product_category']
-
-        products[i]['Title'] = p['name']
-        products[i]['Description'] = p['full_description']
-        products[i]['Reviews'] = all_reviews.get(asin, [])
-        products[i]['Rating'] = all_ratings.get(asin, 'N.A.')
-        for r in products[i]['Reviews']:
-            if 'score' not in r:
-                r['score'] = r.pop('stars')
-            if 'review' not in r:
-                r['body'] = ''
-            else:
-                r['body'] = r.pop('review')
-        products[i]['BulletPoints'] = p['small_description'] \
-            if isinstance(p['small_description'], list) else [p['small_description']]
-
-        pricing = p.get('pricing')
-        if pricing is None or not pricing:
-            pricing = [100.0]
-            price_tag = '$100.0'
-        else:
-            pricing = [
-                float(Decimal(re.sub(r'[^\d.]', '', price)))
-                for price in pricing.split('$')[1:]
-            ]
-            if len(pricing) == 1:
-                price_tag = f"${pricing[0]}"
-            else:
-                price_tag = f"${pricing[0]} to ${pricing[1]}"
-                pricing = pricing[:2]
-        products[i]['pricing'] = pricing
-        products[i]['Price'] = price_tag
-
-        options = dict()
-        customization_options = p['customization_options']
-        option_to_image = dict()
-        if customization_options:
-            for option_name, option_contents in customization_options.items():
-                if option_contents is None:
-                    continue
-                option_name = option_name.lower()
-
-                option_values = []
-                for option_content in option_contents:
-                    option_value = option_content['value'].strip().replace('/', ' | ').lower()
-                    option_image = option_content.get('image', None)
-
-                    option_values.append(option_value)
-                    option_to_image[option_value] = option_image
-                options[option_name] = option_values
-        products[i]['options'] = options
-        products[i]['option_to_image'] = option_to_image
-
-        # without color, size, price, availability
-        # if asin in attributes and 'attributes' in attributes[asin]:
-        #     products[i]['Attributes'] = attributes[asin]['attributes']
-        # else:
-        #     products[i]['Attributes'] = ['DUMMY_ATTR']
-        # products[i]['instruction_text'] = \
-        #     attributes[asin].get('instruction', None)
-        # products[i]['instruction_attributes'] = \
-        #     attributes[asin].get('instruction_attributes', None)
-
-        # without color, size, price, availability
-        if asin in attributes and 'attributes' in attributes[asin]:
-            products[i]['Attributes'] = attributes[asin]['attributes']
-        else:
-            products[i]['Attributes'] = ['DUMMY_ATTR']
-            
-        if human_goals:
-            if asin in human_attributes:
-                products[i]['instructions'] = human_attributes[asin]
-        else:
-            products[i]['instruction_text'] = \
-                attributes[asin].get('instruction', None)
-
-            products[i]['instruction_attributes'] = \
-                attributes[asin].get('instruction_attributes', None)
-
-        products[i]['MainImage'] = p['images'][0]
-        products[i]['query'] = p['query'].lower().strip()
-
-        all_products.append(products[i])
-
-    for p in all_products:
-        for a in p['Attributes']:
-            attribute_to_asins[a].add(p['asin'])
+    with open(filepath, 'rb') as f:
+        parser = ijson.parse(f)
+        for prefix, event, value in parser:
+            if prefix == 'item' and event == 'start_map':
+                current_product = {}
+            elif prefix.endswith('.asin'):
+                current_product['asin'] = value
+            elif prefix.endswith('.name'):
+                current_product['name'] = value
+            elif prefix.endswith('.category'):
+                current_product['category'] = value
+            elif prefix.endswith('.query'):
+                current_product['query'] = value
+            elif prefix.endswith('.product_category'):
+                current_product['product_category'] = value
+            elif prefix.endswith('.full_description'):
+                current_product['Description'] = value
+            elif prefix.endswith('.pricing'):
+                current_product['pricing'] = value
+            elif prefix.endswith('.small_description'):
+                current_product['BulletPoints'] = value if isinstance(value, list) else [value]
+            elif prefix.endswith('.images') and event == 'start_array':
+                current_product['images'] = []
+            elif prefix.endswith('.images.item'):
+                current_product['images'].append(value)
+            elif prefix == 'item' and event == 'end_map':
+                asin = current_product.get('asin')
+                if asin and asin != 'nan' and len(asin) <= 10 and asin not in asins:
+                    asins.add(asin)
+                    process_product(current_product, all_products, attribute_to_asins, all_reviews, all_ratings, attributes, human_attributes, human_goals)
+                    
+                    if num_products is not None and len(all_products) >= num_products:
+                        break
 
     product_item_dict = {p['asin']: p for p in all_products}
     product_prices = generate_product_prices(all_products)
     return all_products, product_item_dict, product_prices, attribute_to_asins
+
+def process_product(p, all_products, attribute_to_asins, all_reviews, all_ratings, attributes, human_attributes, human_goals):
+    asin = p['asin']
+    
+    p['Title'] = p['name']
+    p['MainImage'] = p['images'][0] if p['images'] else None
+    p['Reviews'] = all_reviews.get(asin, [])
+    p['Rating'] = all_ratings.get(asin, 'N.A.')
+    
+    for r in p['Reviews']:
+        if 'score' not in r:
+            r['score'] = r.pop('stars', 0)
+        if 'review' not in r:
+            r['body'] = ''
+        else:
+            r['body'] = r.pop('review')
+
+    pricing = p.get('pricing')
+    if pricing is None or not pricing:
+        pricing = [100.0]
+        price_tag = '$100.0'
+    else:
+        pricing = [
+            float(Decimal(re.sub(r'[^\d.]', '', price)))
+            for price in pricing.split('$')[1:]
+        ]
+        if len(pricing) == 1:
+            price_tag = f"${pricing[0]}"
+        else:
+            price_tag = f"${pricing[0]} to ${pricing[1]}"
+            pricing = pricing[:2]
+    p['pricing'] = pricing
+    p['Price'] = price_tag
+
+    p['options'] = p.get('customization_options', {})
+    p['option_to_image'] = {}
+    if p['options']:
+        for option_name, option_contents in p['options'].items():
+            if option_contents is None:
+                continue
+            option_name = option_name.lower()
+            option_values = []
+            for option_content in option_contents:
+                option_value = option_content['value'].strip().replace('/', ' | ').lower()
+                option_image = option_content.get('image', None)
+                option_values.append(option_value)
+                p['option_to_image'][option_value] = option_image
+            p['options'][option_name] = option_values
+
+    if asin in attributes and 'attributes' in attributes[asin]:
+        p['Attributes'] = attributes[asin]['attributes']
+    else:
+        p['Attributes'] = ['DUMMY_ATTR']
+
+    if human_goals:
+        if asin in human_attributes:
+            p['instructions'] = human_attributes[asin]
+    else:
+        p['instruction_text'] = attributes[asin].get('instruction', None)
+        p['instruction_attributes'] = attributes[asin].get('instruction_attributes', None)
+
+    p['query'] = p['query'].lower().strip()
+
+    all_products.append(p)
+
+    for a in p['Attributes']:
+        attribute_to_asins[a].add(asin)
+
+def generate_product_prices(all_products):
+    product_prices = {}
+    for product in all_products:
+        asin = product['asin']
+        pricing = product['pricing']
+        if not pricing:
+            price = 100.0
+        elif len(pricing) == 1:
+            price = pricing[0]
+        else:
+            price = random.uniform(*pricing[:2])
+        product_prices[asin] = price
+    return product_prices

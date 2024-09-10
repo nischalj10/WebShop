@@ -14,6 +14,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import ElementNotInteractableException
 from web_agent_site.engine.engine import parse_action, END_BUTTON
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 class WebAgentSiteEnv(gym.Env):
     """Gym environment for HTML mode of WebShop environment"""
@@ -35,10 +37,11 @@ class WebAgentSiteEnv(gym.Env):
         self.kwargs = kwargs
 
         # Create a browser driver to simulate the WebShop site
-        service = Service(join(dirname(abspath(__file__)), 'chromedriver'))
+        service = Service(ChromeDriverManager().install())
+        # service = Service(join(dirname(abspath(__file__)), 'chromedriver'))
         options = Options()
-        if 'render' not in kwargs or not kwargs['render']:
-            options.add_argument("--headless")  # don't show browser
+        # if 'render' not in kwargs or not kwargs['render']:
+        #     options.add_argument("--headless")  # don't show browser
         self.browser = webdriver.Chrome(service=service, options=options)
 
         # Set flags and values for WebShop session

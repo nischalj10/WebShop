@@ -14,7 +14,6 @@ from web_agent_site.models import (
 )
 from web_agent_site.utils import DEBUG_PROD_SIZE
 
-
 if __name__ == '__main__':
     #env = gym.make('WebAgentSite-v0')
     #env = WebAgentSiteEnv(render=True, pause=2.0)
